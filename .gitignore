@@ -1,3 +1,4 @@
 *.bak
 .DS_Store
 .claude-plugin/types/
+prompt-pal/.claude-plugin/types/
