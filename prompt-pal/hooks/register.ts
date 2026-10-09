@@ -13,6 +13,7 @@ import { level, basename, shorten, bar, seconds, clip, oneLine, tokens } from '.
 import { parseToolCall, cleanReply, parseReview, extractRelay } from './lib/protocol'
 import { DENY_PATH, SECRET_DIRS, SECRET_FILES, redact, grepRootError, gitArgsError, relayHoldReason, WEB_NOTE } from './lib/guard'
 import { MAX_FOLLOW_UPS, initial, step, needsReview } from './lib/autopilot'
+import { isSoftShellError, exitCodeOf } from './lib/results'
 import type { Event as ApEvent, Effect as ApEffect } from './lib/autopilot'
 import type { Relay } from './lib/protocol'
 import type { Register, EngineInterface, ModelTextBlock, Elements, RenderSurface } from 'claude-code'
@@ -80,7 +81,8 @@ let ticks = 0
 let lastActive = Date.now()
 let turnStartedAt = 0
 let toolsThisTurn = 0
-let errorsThisTurn = 0
+let errorsThisTurn = 0        // real tool failures in Claude's turn
+let nonzeroThisTurn = 0       // shell commands that ran but exited non-zero (usually normal)
 let toolCounts: Record<string, number> = {}
 let lastPrompt = ''
 let speech = ''
@@ -694,7 +696,7 @@ function turnSummary(e: { isAborted: boolean; answer: string }, tookMs: number, 
   const tools = Object.entries(toolCounts).map(([t, n]) => t + '×' + n).join(', ') || 'none'
   return [
     `Event: Claude just ${e.isAborted ? 'got interrupted by the user' : 'finished a turn'} after ${seconds(tookMs)}.`,
-    `Tools used: ${tools}. Failed tool calls: ${errorsThisTurn}.`,
+    `Tools used: ${tools}. Failed tool calls: ${errorsThisTurn}. Shell commands that exited non-zero (often normal, e.g. which/grep/ls checks or failing tests): ${nonzeroThisTurn}.`,
     leveledUp ? `You just leveled up to level ${level(stats.xp)}!` : '',
     `What the user asked: "${lastPrompt}"`,
     e.answer ? `Claude's answer:\n${e.answer}` : '',
@@ -777,7 +779,7 @@ function reviewPrompt(answer: string, startedByBit: boolean) {
     startedByBit
       ? 'This turn was started by YOUR follow-up #' + ap.followUps + ' to Claude. You are on autopilot: keep Claude going until the work is done.'
       : 'This turn was started by the user.',
-    'Tools Claude used: ' + (Object.entries(toolCounts).map(([t, n]) => t + '×' + n).join(', ') || 'none') + '. Failed tool calls: ' + errorsThisTurn + '.',
+    'Tools Claude used: ' + (Object.entries(toolCounts).map(([t, n]) => t + '×' + n).join(', ') || 'none') + '. Failed tool calls: ' + errorsThisTurn + '. Shell commands that exited non-zero (often normal, e.g. which/grep/ls checks): ' + nonzeroThisTurn + '.',
     "Claude's final answer:",
     answer || '(empty)',
     '',
@@ -1088,6 +1090,7 @@ export const register: Register = (on) => {
       busy = true
       toolsThisTurn = 0
       errorsThisTurn = 0
+      nonzeroThisTurn = 0
       toolCounts = {}
       turnStartedAt = Date.now()
       speech = ''
@@ -1157,10 +1160,16 @@ export const register: Register = (on) => {
     toolCounts[e.tool] = (toolCounts[e.tool] || 0) + 1
     stats.tools += 1
     if (/^(Edit|Write|MultiEdit|NotebookEdit)$/.test(e.tool)) stats.edits += 1
-    if (result && (result.deny || result.isError)) {
+    if (isSoftShellError(e.tool, result)) {
+      // Ran fine, just exited non-zero: note it quietly, no alarm
+      nonzeroThisTurn += 1
+      const code = exitCodeOf(result)
+      if (busy) setMood('thinking', 'Claude: `' + shorten((e as { command?: unknown }).command, 30) + '` exited ' + (code || 'non-zero'))
+    } else if (result && (result.deny || result.isError)) {
       stats.errors += 1
       errorsThisTurn += 1
-      setMood('error', result.deny ? 'that one got refused' : 'ouch, ' + (e.tool || 'tool') + ' failed', busy ? 0 : REACTION_MS)
+      const who = "Claude's " + (e.tool || 'tool')
+      setMood('error', result.deny ? who + ' call was refused' : who + ' call failed', busy ? 0 : REACTION_MS)
     } else if (busy) {
       setMood('thinking')
     }

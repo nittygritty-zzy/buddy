@@ -16,6 +16,7 @@ export type WorldOptions = {
   agents?: Array<{ id: string; type: string; description: string; status: string }>   // what $.agent.list() returns
   messages?: Array<{ role: 'user' | 'assistant'; text: string; toolUses: Array<{ tool_use_id: string; tool: string; input: Record<string, unknown> }> }>   // the session transcript
   entries?: Array<{ name: string; kind: 'file' | 'dir' | 'other' }>   // what $.fs.list returns for any directory
+  toolResult?: (e: any) => any         // how Claude's own tool calls end (default: success)
 }
 
 export type Rec = { argv: string[][]; prompts: string[]; toasts: string[]; submits: string[]; reads: string[]; contexts: string[][]; systems: string[]; requests: any[]; sends: Array<{ agentId: string; text: string }> }
@@ -36,7 +37,7 @@ export function world(on: any, opts: WorldOptions = {}) {
   on('prompt.submit', async (_$: any, e: any) => { rec.submits.push(e.text); rec.contexts.push([...(e.context ?? [])]); return { text: e.text } })
   on('turn.start', async (_$: any, e: any) => ({ turnId: e.turnId }))
   on('turn.complete', async (_$: any, e: any) => ({ text: e.answer }))
-  on('tool.call', async () => ({ result: 'ok', text: 'ok' }))   // Claude's own tools: they just succeed
+  on('tool.call', async (_$: any, e: any) => opts.toolResult?.(e) ?? { result: 'ok', text: 'ok' })   // Claude's own tools: succeed unless scripted
   on('ui.render', async ($: any, e: any) => $.ui.resolve(e).Box({ children: [] }))   // nothing else draws
 
   // calls the mod makes on $: a hook answers with { value }
