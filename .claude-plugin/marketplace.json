@@ -1,0 +1,7 @@
+{
+  "name": "local-mods",
+  "owner": { "name": "Local" },
+  "plugins": [
+    { "name": "prompt-pal", "source": "./prompt-pal", "description": "A tiny companion above your prompt" }
+  ]
+}
