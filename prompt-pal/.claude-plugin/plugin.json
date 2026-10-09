@@ -2,5 +2,8 @@
   "name": "prompt-pal",
   "version": "0.1.0",
   "description": "A tiny companion that lives above your prompt and reacts to what Claude is doing",
-  "author": { "name": "You" }
+  "author": {
+    "name": "You"
+  },
+  "types": "./types/index.d.ts"
 }
